@@ -1,0 +1,85 @@
+pipeline {
+    agent any
+    
+    tools{
+        maven 'maven3'
+        
+    }
+
+    stages {
+        stage('git checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/bidhansoni/Multi-Tier-With-Database.git'
+            }
+        }
+        
+         stage('Compile') {
+            steps {
+                sh "mvn compile"
+            }
+        }
+        
+         stage('Test Cases') {
+            steps {
+                sh "mvn test -DskipTests=true"
+            }
+        }
+        
+         stage('Trivy FS scan') {
+            steps {
+                sh "trivy fs --format table -o fs-report.html ."
+            }
+        }
+        
+         stage('SQ analysis') {
+            steps {
+                withSonarQubeEnv('sonar'){
+                  sh "$SCANNER_HOME/bin/scanner-home -Dsonar.projectName=multitier -Dsonar.projectKey=multitier -Dsonar.java.binaries=target"
+                }
+            }
+        }
+        
+         stage('Build') {
+            steps {
+                sh "mvn package -DskipTests=true"
+            }
+        }
+        
+         stage('Publish the artifiact') {
+            steps {
+                withMaven(globalMavenSettingsConfig: 'settings-maven', jdk: '', maven: 'maven3', mavenSettingsConfig: '', traceability: true) {
+                  sh "mvn deploy -Dskiptests=true"
+                }
+            }
+        }
+        
+         stage('Docker image build') {
+            steps {
+                withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+                  sh "docker build -t bidhansoni/bankapp:latest ."
+            }
+          }
+        }
+        
+        stage('Trivy Image scan') {
+            steps {
+                sh "trivy image --format table -o fs-report.html bidhansoni/bankapp:latest"
+            }
+        }
+
+         stage('Docker Push Image') {
+            steps {
+                withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+                  sh "docker push bidhansoni/bankapp:latest"
+            }
+          }
+        }        
+         stage('Deploy to Kubernetes') {
+            steps {
+                withKubeConfig(caCertificate: '', clusterName: 'devops-cluster', contextName: '', credentialsId: 'k8s-token', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://5B56EB0AA2909688DB60BAD2E3A73E40.gr7.ap-south-1.eks.amazonaws.com') {
+    // some block
+}
+            }
+        }
+    }
+}
